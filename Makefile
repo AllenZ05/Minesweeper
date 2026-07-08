@@ -1,14 +1,13 @@
 CXX      := g++
 CXXFLAGS := -std=c++20 -Wall -Wextra -O2
 
-SRC := src/board.cpp src/game.cpp src/main.cpp
-HDR := src/board.h src/game.h
+SRC := src/board.cpp src/gui_main.cpp
 BIN := geesespotter
 
 all: $(BIN)
 
-$(BIN): $(SRC) $(HDR)
-	$(CXX) $(CXXFLAGS) $(SRC) -o $@
+$(BIN): $(SRC) src/board.h
+	$(CXX) $(CXXFLAGS) $(SRC) -o $@ $(shell pkg-config --cflags --libs raylib)
 
 test: build/board_test
 	./build/board_test
