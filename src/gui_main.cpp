@@ -58,6 +58,7 @@ struct App {
   bool timer_started = false;
   double start_time = 0.0;
   double final_time = 0.0;
+  bool press_on_board = false; // left button went down on a cell
   std::vector<std::pair<int, int>> boom_cells; // geese that ended the game
 };
 
@@ -102,7 +103,8 @@ void draw_goose(float cx, float cy) {
   DrawCircle(static_cast<int>(cx) - 7, static_cast<int>(cy) - 9, 1.0f, WHITE); // eye
 }
 
-void draw_cell(const App &app, std::size_t x, std::size_t y, int px, int py, bool hovered) {
+void draw_cell(const App &app, std::size_t x, std::size_t y, int px, int py, bool hovered,
+               bool pressed) {
   const Board &board = *app.board;
   const Rectangle rect = {static_cast<float>(px), static_cast<float>(py),
                           static_cast<float>(kCell), static_cast<float>(kCell)};
@@ -110,8 +112,14 @@ void draw_cell(const App &app, std::size_t x, std::size_t y, int px, int py, boo
   const float cy = py + kCell / 2.0f;
 
   if (board.is_hidden(x, y)) {
-    DrawRectangleRec(rect, hovered && app.phase == Phase::Playing ? kHiddenHover : kHiddenTile);
-    DrawRectangleLinesEx(rect, 1.0f, kGridLine);
+    if (pressed) {
+      // Held down: show as a flat empty tile, classic Minesweeper style.
+      DrawRectangleRec(rect, kRevealedTile);
+      DrawRectangleLinesEx(rect, 1.0f, Fade(kGridLine, 0.35f));
+    } else {
+      DrawRectangleRec(rect, hovered && app.phase == Phase::Playing ? kHiddenHover : kHiddenTile);
+      DrawRectangleLinesEx(rect, 1.0f, kGridLine);
+    }
     if (board.is_marked(x, y)) {
       draw_flag(cx, cy);
       // A flag on a safe cell was wrong: cross it out once the game is lost.
@@ -154,6 +162,7 @@ void start_game(App &app, const Preset &preset) {
   app.phase = Phase::Playing;
   app.timer_started = false;
   app.final_time = 0.0;
+  app.press_on_board = false;
   app.boom_cells.clear();
   const int board_width = static_cast<int>(preset.width) * kCell;
   SetWindowSize(std::max(board_width, kMinWindowWidth),
@@ -163,6 +172,7 @@ void start_game(App &app, const Preset &preset) {
 void go_to_menu(App &app) {
   app.phase = Phase::Menu;
   app.board.reset();
+  app.press_on_board = false;
   SetWindowSize(kMenuWidth, kMenuHeight);
 }
 
@@ -183,10 +193,11 @@ void update_menu(App &app) {
     }
   }
 
-  draw_text_centered("Left-click: reveal    Right-click: flag", kMenuWidth / 2.0f, 500, 18,
+  draw_text_centered("Left-click: reveal    Right-click: flag", kMenuWidth / 2.0f, 490, 18,
                      Fade(kHudBar, 0.65f));
-  draw_text_centered("Click a satisfied number to reveal its neighbours", kMenuWidth / 2.0f, 526,
+  draw_text_centered("Click a satisfied number to reveal its neighbours", kMenuWidth / 2.0f, 516,
                      16, Fade(kHudBar, 0.5f));
+  draw_text_centered("R: restart    Esc: menu", kMenuWidth / 2.0f, 540, 16, Fade(kHudBar, 0.5f));
 }
 
 // After a losing chord on (x, y): every goose it revealed sits next to it.
@@ -215,7 +226,9 @@ void handle_board_click(App &app, std::size_t x, std::size_t y) {
     board.toggle_mark(x, y);
     return;
   }
-  if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+  // Reveals fire on release (so holding the button previews the press), and
+  // only when the press also started on the board.
+  if (!IsMouseButtonReleased(MOUSE_BUTTON_LEFT) || !app.press_on_board) {
     return;
   }
 
@@ -243,6 +256,15 @@ void handle_board_click(App &app, std::size_t x, std::size_t y) {
 }
 
 void update_game(App &app) {
+  if (IsKeyPressed(KEY_R)) {
+    start_game(app, app.preset);
+    return;
+  }
+  if (IsKeyPressed(KEY_ESCAPE)) {
+    go_to_menu(app);
+    return;
+  }
+
   const Board &board = *app.board;
   const int window_width = GetScreenWidth();
   const int offset_x = (window_width - static_cast<int>(board.width()) * kCell) / 2;
@@ -263,13 +285,35 @@ void update_game(App &app) {
   if (app.phase == Phase::Playing && hover_x >= 0) {
     handle_board_click(app, static_cast<std::size_t>(hover_x), static_cast<std::size_t>(hover_y));
   }
+  // Track whether the press started on the board: without this, clicking a
+  // menu button would reveal whichever cell ends up under the cursor once
+  // the window resizes to the board.
+  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    app.press_on_board = app.phase == Phase::Playing && hover_x >= 0;
+  } else if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    app.press_on_board = false;
+  }
+
+  // While the left button is held, preview the press: the target cell shows
+  // as revealed, or all of a number's hidden neighbours for a chord.
+  const bool press_active = app.phase == Phase::Playing && app.press_on_board &&
+                            hover_x >= 0 && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+  const bool press_is_chord =
+      press_active && !board.is_hidden(static_cast<std::size_t>(hover_x),
+                                       static_cast<std::size_t>(hover_y));
 
   for (std::size_t y = 0; y < board.height(); ++y) {
     for (std::size_t x = 0; x < board.width(); ++x) {
       const bool hovered =
           static_cast<int>(x) == hover_x && static_cast<int>(y) == hover_y;
+      bool pressed = false;
+      if (press_active && board.is_hidden(x, y) && !board.is_marked(x, y)) {
+        const int dx = static_cast<int>(x) - hover_x;
+        const int dy = static_cast<int>(y) - hover_y;
+        pressed = press_is_chord ? (dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1) : hovered;
+      }
       draw_cell(app, x, y, offset_x + static_cast<int>(x) * kCell,
-                offset_y + static_cast<int>(y) * kCell, hovered);
+                offset_y + static_cast<int>(y) * kCell, hovered, pressed);
     }
   }
 
@@ -308,7 +352,7 @@ void update_game(App &app) {
 } // namespace
 
 int main() {
-  SetConfigFlags(FLAG_VSYNC_HINT);
+  SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
   InitWindow(kMenuWidth, kMenuHeight, "GeeseSpotter");
   SetTargetFPS(60);
   SetExitKey(KEY_NULL); // only quit via the window close button

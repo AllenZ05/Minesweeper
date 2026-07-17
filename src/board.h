@@ -8,7 +8,7 @@ enum class RevealResult { Revealed, Goose, AlreadyRevealed, Marked };
 enum class MarkResult { Toggled, AlreadyRevealed };
 
 // Pure game logic: cell state, goose placement, reveal/mark rules.
-// Rendering and input live in game.cpp.
+// Rendering and input live in gui_main.cpp.
 class Board {
 public:
   static constexpr int goose_value = 9;

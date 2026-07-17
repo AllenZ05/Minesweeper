@@ -4,7 +4,8 @@ A reimagined version of the classic Minesweeper, with a unique twist inspired by
 
 ## Features
 
-- **Point and Click:** Left-click to reveal, right-click to flag, and chord — click a number with the right flags around it to reveal its remaining neighbours — with hover highlights and hand-drawn flag and goose icons
+- **Point and Click:** Left-click to reveal, right-click to flag, and chord — click a number with the right flags around it to reveal its remaining neighbours — with hover highlights, press-down previews, and hand-drawn flag and goose icons
+- **Crisp and Quick:** High-DPI rendering on Retina displays, with keyboard shortcuts (R to restart, Esc for the menu)
 - **Difficulty Presets:** Five levels, from Beginner (6×6, 5 geese) up to Expert (30×20, 150 geese), with the window sizing itself to fit the board
 - **First-Reveal Safety:** Your first reveal is never a goose (and when the board has room, neither are its neighbours), so every game starts fair
 - **Goose Counter & Timer:** A HUD tracks how many geese are left to flag and times your run — race your best clear
