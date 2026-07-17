@@ -4,8 +4,12 @@
 #include "raylib.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdlib>
+#include <fstream>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -14,8 +18,11 @@ namespace {
 constexpr int kCell = 36;
 constexpr int kHud = 56;
 constexpr int kMenuWidth = 460;
-constexpr int kMenuHeight = 560;
+constexpr int kMenuHeight = 640;
 constexpr int kMinWindowWidth = 340;
+constexpr int kMinCustomSize = 4;
+constexpr int kMaxCustomWidth = 40; // Board allows 60, but wider wouldn't fit on screen
+constexpr int kMaxCustomHeight = static_cast<int>(Board::max_height);
 
 struct Preset {
   const char *name;
@@ -29,7 +36,38 @@ constexpr Preset kPresets[] = {
     {"Hard", 30, 16, 99},    {"Expert", 30, 20, 150},
 };
 
-enum class Phase { Menu, Playing, Won, Lost };
+enum class Phase { Menu, Custom, Playing, Won, Lost };
+
+// Best clear per preset, in seconds (0 = none yet), kept in a dotfile so
+// they survive restarts. Custom games are not tracked.
+std::string best_times_path() {
+  const char *home = std::getenv("HOME");
+  return home ? std::string(home) + "/.geesespotter_best" : std::string(".geesespotter_best");
+}
+
+std::array<double, 5> load_best_times() {
+  std::array<double, 5> best{};
+  std::ifstream file(best_times_path());
+  std::string name;
+  double seconds = 0.0;
+  while (file >> name >> seconds) {
+    for (int i = 0; i < 5; ++i) {
+      if (name == kPresets[i].name && seconds > 0.0) {
+        best[i] = seconds;
+      }
+    }
+  }
+  return best;
+}
+
+void save_best_times(const std::array<double, 5> &best) {
+  std::ofstream file(best_times_path());
+  for (int i = 0; i < 5; ++i) {
+    if (best[i] > 0.0) {
+      file << kPresets[i].name << ' ' << best[i] << '\n';
+    }
+  }
+}
 
 const Color kBackground = {235, 237, 241, 255};
 const Color kHudBar = {45, 55, 72, 255};
@@ -55,6 +93,13 @@ struct App {
   Phase phase = Phase::Menu;
   std::optional<Board> board;
   Preset preset = kPresets[1];
+  int preset_index = 1; // index into kPresets, -1 for custom games
+  std::array<double, 5> best_times = load_best_times();
+  bool new_best = false;
+  int custom_width = 16;
+  int custom_height = 12;
+  int custom_geese = 40;
+  double stepper_next_fire = 0.0; // hold-to-repeat for the +/- buttons
   bool timer_started = false;
   double start_time = 0.0;
   double final_time = 0.0;
@@ -72,11 +117,38 @@ void draw_text_centered(const char *text, float cx, float cy, int size, Color co
   DrawText(text, static_cast<int>(cx) - width / 2, static_cast<int>(cy) - size / 2, size, color);
 }
 
-bool button(Rectangle rect, const char *label, int font_size) {
+bool button(Rectangle rect, const char *label, int font_size, const char *sublabel = nullptr) {
   const bool hover = CheckCollisionPointRec(GetMousePosition(), rect);
   DrawRectangleRounded(rect, 0.25f, 8, hover ? kHiddenHover : kHiddenTile);
-  draw_text_centered(label, rect.x + rect.width / 2, rect.y + rect.height / 2, font_size, WHITE);
+  const float cx = rect.x + rect.width / 2;
+  const float cy = rect.y + rect.height / 2;
+  if (sublabel != nullptr) {
+    draw_text_centered(label, cx, cy - 8, font_size, WHITE);
+    draw_text_centered(sublabel, cx, cy + 12, 14, Fade(WHITE, 0.75f));
+  } else {
+    draw_text_centered(label, cx, cy, font_size, WHITE);
+  }
   return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+}
+
+// Stepper button: fires once on click, then repeats while held. One shared
+// timer is enough since only one button can be held at a time.
+bool repeat_button(App &app, Rectangle rect, const char *label) {
+  const bool hover = CheckCollisionPointRec(GetMousePosition(), rect);
+  DrawRectangleRounded(rect, 0.25f, 8, hover ? kHiddenHover : kHiddenTile);
+  draw_text_centered(label, rect.x + rect.width / 2, rect.y + rect.height / 2, 20, WHITE);
+  if (!hover || !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    return false;
+  }
+  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    app.stepper_next_fire = GetTime() + 0.4;
+    return true;
+  }
+  if (GetTime() >= app.stepper_next_fire) {
+    app.stepper_next_fire = GetTime() + 0.06;
+    return true;
+  }
+  return false;
 }
 
 void draw_flag(float cx, float cy) {
@@ -148,20 +220,25 @@ double current_elapsed(const App &app) {
   return app.phase == Phase::Playing ? GetTime() - app.start_time : app.final_time;
 }
 
-const char *time_text(const App &app) {
-  const int seconds = static_cast<int>(current_elapsed(app));
+const char *format_seconds(int seconds) {
   if (seconds >= 60) {
     return TextFormat("%dm %02ds", seconds / 60, seconds % 60);
   }
   return TextFormat("%ds", seconds);
 }
 
-void start_game(App &app, const Preset &preset) {
+const char *time_text(const App &app) {
+  return format_seconds(static_cast<int>(current_elapsed(app)));
+}
+
+void start_game(App &app, const Preset &preset, int preset_index) {
   app.preset = preset;
+  app.preset_index = preset_index;
   app.board.emplace(preset.width, preset.height, preset.geese);
   app.phase = Phase::Playing;
   app.timer_started = false;
   app.final_time = 0.0;
+  app.new_best = false;
   app.press_on_board = false;
   app.boom_cells.clear();
   const int board_width = static_cast<int>(preset.width) * kCell;
@@ -187,17 +264,76 @@ void update_menu(App &app) {
     const char *label = TextFormat("%s  (%dx%d, %d geese)", preset.name,
                                    static_cast<int>(preset.width),
                                    static_cast<int>(preset.height), preset.geese);
-    if (button(rect, label, 18)) {
-      start_game(app, preset);
+    const char *best =
+        app.best_times[i] > 0.0
+            ? TextFormat("Best: %s", format_seconds(static_cast<int>(app.best_times[i])))
+            : nullptr;
+    if (button(rect, label, 18, best)) {
+      start_game(app, preset, i);
       return;
     }
   }
+  const char *custom_sub = TextFormat("%dx%d, %d geese", app.custom_width, app.custom_height,
+                                      app.custom_geese);
+  if (button({80, 150.0f + 5 * 64, 300, 48}, "Custom", 18, custom_sub)) {
+    app.phase = Phase::Custom;
+    return;
+  }
 
-  draw_text_centered("Left-click: reveal    Right-click: flag", kMenuWidth / 2.0f, 490, 18,
+  draw_text_centered("Left-click: reveal    Right-click: flag", kMenuWidth / 2.0f, 548, 18,
                      Fade(kHudBar, 0.65f));
-  draw_text_centered("Click a satisfied number to reveal its neighbours", kMenuWidth / 2.0f, 516,
+  draw_text_centered("Click a satisfied number to reveal its neighbours", kMenuWidth / 2.0f, 574,
                      16, Fade(kHudBar, 0.5f));
-  draw_text_centered("R: restart    Esc: menu", kMenuWidth / 2.0f, 540, 16, Fade(kHudBar, 0.5f));
+  draw_text_centered("R: restart    Esc: menu", kMenuWidth / 2.0f, 598, 16, Fade(kHudBar, 0.5f));
+}
+
+void update_custom(App &app) {
+  if (IsKeyPressed(KEY_ESCAPE)) {
+    app.phase = Phase::Menu;
+    return;
+  }
+
+  draw_text_centered("Custom Game", kMenuWidth / 2.0f, 64, 40, kHudBar);
+
+  struct Row {
+    const char *label;
+    int *value;
+    int min;
+    int max;
+  };
+  const int max_geese = app.custom_width * app.custom_height - 9;
+  const Row rows[] = {
+      {"Width", &app.custom_width, kMinCustomSize, kMaxCustomWidth},
+      {"Height", &app.custom_height, kMinCustomSize, kMaxCustomHeight},
+      {"Geese", &app.custom_geese, 1, max_geese},
+  };
+  float row_y = 150;
+  for (const Row &row : rows) {
+    DrawText(row.label, 80, static_cast<int>(row_y) + 10, 20, kHudBar);
+    if (repeat_button(app, {240, row_y, 40, 40}, "-")) {
+      *row.value = std::max(*row.value - 1, row.min);
+    }
+    draw_text_centered(TextFormat("%d", *row.value), 310, row_y + 20, 22, kHudBar);
+    if (repeat_button(app, {340, row_y, 40, 40}, "+")) {
+      *row.value = std::min(*row.value + 1, row.max);
+    }
+    row_y += 70;
+  }
+  // Shrinking the board can leave too many geese: keep the count in range.
+  // The cap leaves the 3x3 around the first click clear, so every custom
+  // game keeps full first-reveal safety.
+  app.custom_geese = std::clamp(app.custom_geese, 1, max_geese);
+
+  if (button({80, 420, 300, 48}, "Start", 18)) {
+    const Preset custom{"Custom", static_cast<std::size_t>(app.custom_width),
+                        static_cast<std::size_t>(app.custom_height),
+                        static_cast<unsigned int>(app.custom_geese)};
+    start_game(app, custom, -1);
+    return;
+  }
+  if (button({80, 484, 300, 48}, "Back", 18)) {
+    app.phase = Phase::Menu;
+  }
 }
 
 // After a losing chord on (x, y): every goose it revealed sits next to it.
@@ -251,13 +387,21 @@ void handle_board_click(App &app, std::size_t x, std::size_t y) {
   } else if (result == RevealResult::Revealed && board.is_won()) {
     app.final_time = app.timer_started ? GetTime() - app.start_time : 0.0;
     board.mark_all_geese();
+    if (app.preset_index >= 0) {
+      double &best = app.best_times[app.preset_index];
+      if (best <= 0.0 || app.final_time < best) {
+        best = app.final_time;
+        save_best_times(app.best_times);
+        app.new_best = true;
+      }
+    }
     app.phase = Phase::Won;
   }
 }
 
 void update_game(App &app) {
   if (IsKeyPressed(KEY_R)) {
-    start_game(app, app.preset);
+    start_game(app, app.preset, app.preset_index);
     return;
   }
   if (IsKeyPressed(KEY_ESCAPE)) {
@@ -335,13 +479,20 @@ void update_game(App &app) {
 
   // Game over: message on the left, Again/Menu buttons on the right
   if (app.phase == Phase::Won) {
-    DrawText(TextFormat("Cleared in %s!", time_text(app)), 14, 19, 18, kWinGreen);
+    DrawText(TextFormat("Cleared in %s!", time_text(app)), 14, 10, 18, kWinGreen);
+    if (app.new_best) {
+      DrawText("New best!", 14, 32, 14, kWinGreen);
+    } else if (app.preset_index >= 0 && app.best_times[app.preset_index] > 0.0) {
+      DrawText(TextFormat("Best: %s",
+                          format_seconds(static_cast<int>(app.best_times[app.preset_index]))),
+               14, 32, 14, Fade(RAYWHITE, 0.6f));
+    }
   } else {
     DrawText("HONK! Game over", 14, 19, 18, {255, 138, 128, 255});
   }
   const Rectangle again_button = {window_width - 150.0f, 12, 64, 32};
   if (button(again_button, "Again", 16)) {
-    start_game(app, app.preset);
+    start_game(app, app.preset, app.preset_index);
     return;
   }
   if (button(menu_button, "Menu", 16)) {
@@ -363,6 +514,8 @@ int main() {
     ClearBackground(kBackground);
     if (app.phase == Phase::Menu) {
       update_menu(app);
+    } else if (app.phase == Phase::Custom) {
+      update_custom(app);
     } else {
       update_game(app);
     }

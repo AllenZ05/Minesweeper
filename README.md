@@ -6,7 +6,8 @@ A reimagined version of the classic Minesweeper, with a unique twist inspired by
 
 - **Point and Click:** Left-click to reveal, right-click to flag, and chord — click a number with the right flags around it to reveal its remaining neighbours — with hover highlights, press-down previews, and hand-drawn flag and goose icons
 - **Crisp and Quick:** High-DPI rendering on Retina displays, with keyboard shortcuts (R to restart, Esc for the menu)
-- **Difficulty Presets:** Five levels, from Beginner (6×6, 5 geese) up to Expert (30×20, 150 geese), with the window sizing itself to fit the board
+- **Difficulty Presets:** Five levels, from Beginner (6×6, 5 geese) up to Expert (30×20, 150 geese), plus a Custom mode where you pick the board size and goose count — the window sizes itself to fit the board
+- **Best Times:** Your fastest clear of each preset is saved locally and shown in the menu — beat it and the win screen says so
 - **First-Reveal Safety:** Your first reveal is never a goose (and when the board has room, neither are its neighbours), so every game starts fair
 - **Goose Counter & Timer:** A HUD tracks how many geese are left to flag and times your run — race your best clear
 - **Classic Look:** Traditional Minesweeper number colours; losing highlights the geese that got you in red and crosses out misplaced flags, while winning flags every remaining goose
@@ -37,7 +38,7 @@ Run the unit tests (optional) with `make test`.
 - **Nov 2023 — Main Development:** Full Minesweeper rules (reveal, flag, goose placement, win/loss detection) rendered as a text grid in the terminal and played with typed commands
 - **Dec 2023 — Gameplay Improvements:** Added the recursive reveal, so clearing a blank cell opens up the whole empty region like in classic Minesweeper
 - **Jan 2024 — Major UI Changes and Code Refactoring:** Restructured the code and overhauled the terminal interface with colours, better board and prompt spacing, and clearer error messages
-- **Jul 2026 — Modernization:** Rewrote the core in C++20 with unit tests, replaced the terminal interface with a clickable raylib GUI (difficulty presets, first-reveal safety, goose counter and timer), and added chording plus smarter win/loss flag presentation
+- **Jul 2026 — Modernization:** Rewrote the core in C++20 with unit tests, replaced the terminal interface with a clickable raylib GUI (difficulty presets, first-reveal safety, goose counter and timer), and added chording, smarter win/loss flag presentation, per-preset best times, and a custom board mode
 
 ## Video Demo (original terminal version)
 
