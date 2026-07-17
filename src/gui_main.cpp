@@ -100,9 +100,14 @@ struct App {
   int custom_height = 12;
   int custom_geese = 40;
   double stepper_next_fire = 0.0; // hold-to-repeat for the +/- buttons
+  int stepper_fires = 0;
+  int editing_row = -1; // custom screen: row whose value is being typed
+  std::string edit_buffer;
   bool timer_started = false;
   double start_time = 0.0;
   double final_time = 0.0;
+  bool paused = false;
+  double paused_elapsed = 0.0; // run time frozen while paused
   bool press_on_board = false; // left button went down on a cell
   std::vector<std::pair<int, int>> boom_cells; // geese that ended the game
 };
@@ -142,10 +147,12 @@ bool repeat_button(App &app, Rectangle rect, const char *label) {
   }
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
     app.stepper_next_fire = GetTime() + 0.4;
+    app.stepper_fires = 0;
     return true;
   }
   if (GetTime() >= app.stepper_next_fire) {
-    app.stepper_next_fire = GetTime() + 0.06;
+    ++app.stepper_fires; // speed up the longer the button is held
+    app.stepper_next_fire = GetTime() + (app.stepper_fires > 20 ? 0.015 : 0.06);
     return true;
   }
   return false;
@@ -217,7 +224,24 @@ double current_elapsed(const App &app) {
   if (!app.timer_started) {
     return 0.0;
   }
-  return app.phase == Phase::Playing ? GetTime() - app.start_time : app.final_time;
+  if (app.phase != Phase::Playing) {
+    return app.final_time;
+  }
+  return app.paused ? app.paused_elapsed : GetTime() - app.start_time;
+}
+
+void set_paused(App &app, bool paused) {
+  if (app.paused == paused) {
+    return;
+  }
+  app.paused = paused;
+  if (app.timer_started) {
+    if (paused) {
+      app.paused_elapsed = GetTime() - app.start_time;
+    } else {
+      app.start_time = GetTime() - app.paused_elapsed; // resume where we left off
+    }
+  }
 }
 
 const char *format_seconds(int seconds) {
@@ -239,6 +263,8 @@ void start_game(App &app, const Preset &preset, int preset_index) {
   app.timer_started = false;
   app.final_time = 0.0;
   app.new_best = false;
+  app.paused = false;
+  app.paused_elapsed = 0.0;
   app.press_on_board = false;
   app.boom_cells.clear();
   const int board_width = static_cast<int>(preset.width) * kCell;
@@ -284,17 +310,11 @@ void update_menu(App &app) {
                      Fade(kHudBar, 0.65f));
   draw_text_centered("Click a satisfied number to reveal its neighbours", kMenuWidth / 2.0f, 574,
                      16, Fade(kHudBar, 0.5f));
-  draw_text_centered("R: restart    Esc: menu", kMenuWidth / 2.0f, 598, 16, Fade(kHudBar, 0.5f));
+  draw_text_centered("R: restart    P: pause    Esc: menu", kMenuWidth / 2.0f, 598, 16,
+                     Fade(kHudBar, 0.5f));
 }
 
 void update_custom(App &app) {
-  if (IsKeyPressed(KEY_ESCAPE)) {
-    app.phase = Phase::Menu;
-    return;
-  }
-
-  draw_text_centered("Custom Game", kMenuWidth / 2.0f, 64, 40, kHudBar);
-
   struct Row {
     const char *label;
     int *value;
@@ -307,17 +327,79 @@ void update_custom(App &app) {
       {"Height", &app.custom_height, kMinCustomSize, kMaxCustomHeight},
       {"Geese", &app.custom_geese, 1, max_geese},
   };
-  float row_y = 150;
-  for (const Row &row : rows) {
+  const auto value_rect = [](int i) { return Rectangle{280, 150.0f + i * 70, 60, 40}; };
+
+  const auto commit_edit = [&] {
+    if (app.editing_row >= 0 && !app.edit_buffer.empty()) {
+      const Row &row = rows[app.editing_row];
+      *row.value = std::clamp(std::stoi(app.edit_buffer), row.min, row.max);
+    }
+    app.editing_row = -1;
+    app.edit_buffer.clear();
+  };
+
+  if (IsKeyPressed(KEY_ESCAPE)) {
+    if (app.editing_row >= 0) { // first Esc cancels the edit, second leaves
+      app.editing_row = -1;
+      app.edit_buffer.clear();
+    } else {
+      app.phase = Phase::Menu;
+      return;
+    }
+  }
+  if (app.editing_row >= 0) {
+    for (int ch = GetCharPressed(); ch != 0; ch = GetCharPressed()) {
+      if (ch >= '0' && ch <= '9' && app.edit_buffer.size() < 3) {
+        app.edit_buffer.push_back(static_cast<char>(ch));
+      }
+    }
+    if (IsKeyPressed(KEY_BACKSPACE) && !app.edit_buffer.empty()) {
+      app.edit_buffer.pop_back();
+    }
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+      commit_edit();
+    }
+    // Clicking anywhere else applies the typed value.
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+        !CheckCollisionPointRec(GetMousePosition(), value_rect(app.editing_row))) {
+      commit_edit();
+    }
+  }
+
+  draw_text_centered("Custom Game", kMenuWidth / 2.0f, 64, 40, kHudBar);
+
+  for (int i = 0; i < 3; ++i) {
+    const Row &row = rows[i];
+    const float row_y = 150.0f + i * 70;
     DrawText(row.label, 80, static_cast<int>(row_y) + 10, 20, kHudBar);
     if (repeat_button(app, {240, row_y, 40, 40}, "-")) {
       *row.value = std::max(*row.value - 1, row.min);
     }
-    draw_text_centered(TextFormat("%d", *row.value), 310, row_y + 20, 22, kHudBar);
+
+    const Rectangle vrect = value_rect(i);
+    const bool editing = app.editing_row == i;
+    DrawRectangleRounded(vrect, 0.25f, 8, editing ? WHITE : Fade(WHITE, 0.55f));
+    DrawRectangleRoundedLinesEx(vrect, 0.25f, 8, 1.0f, Fade(kGridLine, editing ? 1.0f : 0.6f));
+    const float vx = vrect.x + vrect.width / 2;
+    const float vy = vrect.y + vrect.height / 2;
+    if (editing) {
+      const bool blink = static_cast<int>(GetTime() * 2.5) % 2 == 0;
+      draw_text_centered(TextFormat("%s%s", app.edit_buffer.c_str(), blink ? "_" : " "), vx, vy,
+                         22, kHudBar);
+      DrawText(TextFormat("%d to %d", row.min, row.max), 396, static_cast<int>(row_y) + 13, 14,
+               Fade(kHudBar, 0.55f));
+    } else {
+      draw_text_centered(TextFormat("%d", *row.value), vx, vy, 22, kHudBar);
+      if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+          CheckCollisionPointRec(GetMousePosition(), vrect)) {
+        app.editing_row = i;
+        app.edit_buffer.clear();
+      }
+    }
+
     if (repeat_button(app, {340, row_y, 40, 40}, "+")) {
       *row.value = std::min(*row.value + 1, row.max);
     }
-    row_y += 70;
   }
   // Shrinking the board can leave too many geese: keep the count in range.
   // The cap leaves the 3x3 around the first click clear, so every custom
@@ -325,6 +407,8 @@ void update_custom(App &app) {
   app.custom_geese = std::clamp(app.custom_geese, 1, max_geese);
 
   if (button({80, 420, 300, 48}, "Start", 18)) {
+    // A width or height typed just now can shrink the goose cap this frame.
+    app.custom_geese = std::clamp(app.custom_geese, 1, app.custom_width * app.custom_height - 9);
     const Preset custom{"Custom", static_cast<std::size_t>(app.custom_width),
                         static_cast<std::size_t>(app.custom_height),
                         static_cast<unsigned int>(app.custom_geese)};
@@ -332,8 +416,13 @@ void update_custom(App &app) {
     return;
   }
   if (button({80, 484, 300, 48}, "Back", 18)) {
+    app.editing_row = -1;
+    app.edit_buffer.clear();
     app.phase = Phase::Menu;
+    return;
   }
+  draw_text_centered("Click a value to type it in", kMenuWidth / 2.0f, 566, 16,
+                     Fade(kHudBar, 0.5f));
 }
 
 // After a losing chord on (x, y): every goose it revealed sits next to it.
@@ -408,6 +497,16 @@ void update_game(App &app) {
     go_to_menu(app);
     return;
   }
+  if (app.phase == Phase::Playing) {
+    if (IsKeyPressed(KEY_P)) {
+      set_paused(app, !app.paused);
+    }
+    // Losing focus pauses too, so tabbing away neither burns the clock nor
+    // grants free planning time.
+    if (!app.paused && app.timer_started && !IsWindowFocused()) {
+      set_paused(app, true);
+    }
+  }
 
   const Board &board = *app.board;
   const int window_width = GetScreenWidth();
@@ -426,38 +525,48 @@ void update_game(App &app) {
     hover_y = my / kCell;
   }
 
-  if (app.phase == Phase::Playing && hover_x >= 0) {
+  if (app.phase == Phase::Playing && !app.paused && hover_x >= 0) {
     handle_board_click(app, static_cast<std::size_t>(hover_x), static_cast<std::size_t>(hover_y));
   }
   // Track whether the press started on the board: without this, clicking a
   // menu button would reveal whichever cell ends up under the cursor once
   // the window resizes to the board.
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    app.press_on_board = app.phase == Phase::Playing && hover_x >= 0;
+    app.press_on_board = app.phase == Phase::Playing && !app.paused && hover_x >= 0;
   } else if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
     app.press_on_board = false;
   }
 
-  // While the left button is held, preview the press: the target cell shows
-  // as revealed, or all of a number's hidden neighbours for a chord.
-  const bool press_active = app.phase == Phase::Playing && app.press_on_board &&
-                            hover_x >= 0 && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-  const bool press_is_chord =
-      press_active && !board.is_hidden(static_cast<std::size_t>(hover_x),
-                                       static_cast<std::size_t>(hover_y));
+  if (app.paused) {
+    // Cover the board so pausing can't be used to plan ahead.
+    const int window_height = GetScreenHeight();
+    DrawRectangle(0, kHud, window_width, window_height - kHud, kHiddenTile);
+    const float mid_y = kHud + (window_height - kHud) / 2.0f;
+    draw_text_centered("Paused", window_width / 2.0f, mid_y - 12, 32, kHudBar);
+    draw_text_centered("P to resume", window_width / 2.0f, mid_y + 20, 16,
+                       Fade(kHudBar, 0.7f));
+  } else {
+    // While the left button is held, preview the press: the target cell shows
+    // as revealed, or all of a number's hidden neighbours for a chord.
+    const bool press_active = app.phase == Phase::Playing && app.press_on_board &&
+                              hover_x >= 0 && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    const bool press_is_chord =
+        press_active && !board.is_hidden(static_cast<std::size_t>(hover_x),
+                                         static_cast<std::size_t>(hover_y));
 
-  for (std::size_t y = 0; y < board.height(); ++y) {
-    for (std::size_t x = 0; x < board.width(); ++x) {
-      const bool hovered =
-          static_cast<int>(x) == hover_x && static_cast<int>(y) == hover_y;
-      bool pressed = false;
-      if (press_active && board.is_hidden(x, y) && !board.is_marked(x, y)) {
-        const int dx = static_cast<int>(x) - hover_x;
-        const int dy = static_cast<int>(y) - hover_y;
-        pressed = press_is_chord ? (dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1) : hovered;
+    for (std::size_t y = 0; y < board.height(); ++y) {
+      for (std::size_t x = 0; x < board.width(); ++x) {
+        const bool hovered =
+            static_cast<int>(x) == hover_x && static_cast<int>(y) == hover_y;
+        bool pressed = false;
+        if (press_active && board.is_hidden(x, y) && !board.is_marked(x, y)) {
+          const int dx = static_cast<int>(x) - hover_x;
+          const int dy = static_cast<int>(y) - hover_y;
+          pressed = press_is_chord ? (dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1) : hovered;
+        }
+        draw_cell(app, x, y, offset_x + static_cast<int>(x) * kCell,
+                  offset_y + static_cast<int>(y) * kCell, hovered, pressed);
       }
-      draw_cell(app, x, y, offset_x + static_cast<int>(x) * kCell,
-                offset_y + static_cast<int>(y) * kCell, hovered, pressed);
     }
   }
 
@@ -468,9 +577,13 @@ void update_game(App &app) {
     const long long geese_left = static_cast<long long>(board.num_geese()) -
                                  static_cast<long long>(board.num_marked());
     DrawText(TextFormat("Geese: %lld", geese_left), 14, 18, 20, RAYWHITE);
+    const Rectangle pause_button = {window_width - 150.0f, 12, 64, 32};
     const char *time = time_text(app);
-    DrawText(time, static_cast<int>(menu_button.x) - 10 - MeasureText(time, 20), 18, 20,
+    DrawText(time, static_cast<int>(pause_button.x) - 10 - MeasureText(time, 20), 18, 20,
              Fade(RAYWHITE, 0.7f));
+    if (button(pause_button, app.paused ? "Resume" : "Pause", 14)) {
+      set_paused(app, !app.paused);
+    }
     if (button(menu_button, "Menu", 16)) {
       go_to_menu(app);
     }
