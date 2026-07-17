@@ -4,11 +4,11 @@ A reimagined version of the classic Minesweeper, with a unique twist inspired by
 
 ## Features
 
-- **Point and Click:** Left-click to reveal, right-click to flag, with hover highlights and hand-drawn flag and goose icons
+- **Point and Click:** Left-click to reveal, right-click to flag, and chord — click a number with the right flags around it to reveal its remaining neighbours — with hover highlights and hand-drawn flag and goose icons
 - **Difficulty Presets:** Five levels, from Beginner (6×6, 5 geese) up to Expert (30×20, 150 geese), with the window sizing itself to fit the board
 - **First-Reveal Safety:** Your first reveal is never a goose (and when the board has room, neither are its neighbours), so every game starts fair
 - **Goose Counter & Timer:** A HUD tracks how many geese are left to flag and times your run — race your best clear
-- **Classic Look:** Traditional Minesweeper number colours, with the goose that got you highlighted in red when you lose
+- **Classic Look:** Traditional Minesweeper number colours; losing highlights the geese that got you in red and crosses out misplaced flags, while winning flags every remaining goose
 
 ## Tech Stack and Tools used
 
@@ -33,10 +33,10 @@ Run the unit tests (optional) with `make test`.
 
 ## Timeline
 
-- **Main Development:** Nov 2023
-- **Major UI Changes and Code Refactoring:** Jan 2024
-- **Modernization (C++20 rewrite, presets, first-reveal safety, timer):** Jul 2026
-- **Clickable GUI (raylib), replacing the terminal interface:** Jul 2026
+- **Nov 2023 — Main Development:** Full Minesweeper rules (reveal, flag, goose placement, win/loss detection) rendered as a text grid in the terminal and played with typed commands
+- **Dec 2023 — Gameplay Improvements:** Added the recursive reveal, so clearing a blank cell opens up the whole empty region like in classic Minesweeper
+- **Jan 2024 — Major UI Changes and Code Refactoring:** Restructured the code and overhauled the terminal interface with colours, better board and prompt spacing, and clearer error messages
+- **Jul 2026 — Modernization:** Rewrote the core in C++20 with unit tests, replaced the terminal interface with a clickable raylib GUI (difficulty presets, first-reveal safety, goose counter and timer), and added chording plus smarter win/loss flag presentation
 
 ## Video Demo (original terminal version)
 

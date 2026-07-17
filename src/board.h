@@ -27,10 +27,16 @@ public:
   // Geese are placed lazily on the first reveal, so the first revealed
   // cell is never a goose (nor its neighbours, when the board has room).
   RevealResult reveal(std::size_t x, std::size_t y);
+  // Chord: if (x, y) is a revealed number with exactly that many marked
+  // neighbours, reveals every hidden unmarked neighbour. Returns Goose if
+  // one of them was a goose, Revealed if any cell was revealed, and
+  // AlreadyRevealed if the chord did not apply.
+  RevealResult chord(std::size_t x, std::size_t y);
   MarkResult toggle_mark(std::size_t x, std::size_t y);
 
   bool is_won() const;
-  void reveal_all_geese();
+  void reveal_unmarked_geese(); // on loss: show geese, but flagged ones stay flagged
+  void mark_all_geese();        // on win: flag any geese left unmarked
 
   // Coordinates must be on the board.
   bool is_hidden(std::size_t x, std::size_t y) const;

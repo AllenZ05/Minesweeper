@@ -24,6 +24,19 @@ bool adjacent_or_same(std::size_t ax, std::size_t ay, std::size_t bx, std::size_
   return std::max(ax, bx) - std::min(ax, bx) <= 1 && std::max(ay, by) - std::min(ay, by) <= 1;
 }
 
+template <typename Fn>
+void for_each_neighbour(std::size_t x, std::size_t y, std::size_t width, std::size_t height,
+                        Fn &&fn) {
+  for (const auto &offset : kNeighbourOffsets) {
+    const long long nx = static_cast<long long>(x) + offset[0];
+    const long long ny = static_cast<long long>(y) + offset[1];
+    if (nx >= 0 && ny >= 0 && nx < static_cast<long long>(width) &&
+        ny < static_cast<long long>(height)) {
+      fn(static_cast<std::size_t>(nx), static_cast<std::size_t>(ny));
+    }
+  }
+}
+
 } // namespace
 
 Board::Board(std::size_t width, std::size_t height, unsigned int num_geese)
@@ -56,6 +69,43 @@ RevealResult Board::reveal(std::size_t x, std::size_t y) {
   return RevealResult::Revealed;
 }
 
+RevealResult Board::chord(std::size_t x, std::size_t y) {
+  const Cell &cell = cells_[index(x, y)];
+  if (cell.hidden || cell.value == 0 || cell.value == goose_value) {
+    return RevealResult::AlreadyRevealed;
+  }
+
+  int marked_neighbours = 0;
+  for_each_neighbour(x, y, width_, height_, [&](std::size_t nx, std::size_t ny) {
+    if (cells_[index(nx, ny)].marked) {
+      ++marked_neighbours;
+    }
+  });
+  if (marked_neighbours != cell.value) {
+    return RevealResult::AlreadyRevealed;
+  }
+
+  bool hit_goose = false;
+  bool revealed_any = false;
+  for_each_neighbour(x, y, width_, height_, [&](std::size_t nx, std::size_t ny) {
+    Cell &neighbour = cells_[index(nx, ny)];
+    if (!neighbour.hidden || neighbour.marked) {
+      return;
+    }
+    if (neighbour.value == goose_value) {
+      neighbour.hidden = false;
+      hit_goose = true;
+    } else {
+      flood_reveal(nx, ny);
+    }
+    revealed_any = true;
+  });
+  if (hit_goose) {
+    return RevealResult::Goose;
+  }
+  return revealed_any ? RevealResult::Revealed : RevealResult::AlreadyRevealed;
+}
+
 MarkResult Board::toggle_mark(std::size_t x, std::size_t y) {
   Cell &cell = cells_[index(x, y)];
   if (!cell.hidden) {
@@ -70,10 +120,18 @@ bool Board::is_won() const {
                      [](const Cell &c) { return c.value == goose_value || !c.hidden; });
 }
 
-void Board::reveal_all_geese() {
+void Board::reveal_unmarked_geese() {
+  for (Cell &cell : cells_) {
+    if (cell.value == goose_value && !cell.marked) {
+      cell.hidden = false;
+    }
+  }
+}
+
+void Board::mark_all_geese() {
   for (Cell &cell : cells_) {
     if (cell.value == goose_value) {
-      cell.hidden = false;
+      cell.marked = true;
     }
   }
 }
@@ -125,17 +183,11 @@ void Board::compute_neighbours() {
         continue;
       }
       int count = 0;
-      for (const auto &offset : kNeighbourOffsets) {
-        const long long nx = static_cast<long long>(x) + offset[0];
-        const long long ny = static_cast<long long>(y) + offset[1];
-        if (nx < 0 || ny < 0 || nx >= static_cast<long long>(width_) ||
-            ny >= static_cast<long long>(height_)) {
-          continue;
-        }
+      for_each_neighbour(x, y, width_, height_, [&](std::size_t nx, std::size_t ny) {
         if (cells_[index(nx, ny)].value == goose_value) {
           ++count;
         }
-      }
+      });
       cell.value = count;
     }
   }
@@ -154,14 +206,9 @@ void Board::flood_reveal(std::size_t start_x, std::size_t start_y) {
     }
     cell.hidden = false;
     if (cell.value == 0) {
-      for (const auto &offset : kNeighbourOffsets) {
-        const long long nx = static_cast<long long>(x) + offset[0];
-        const long long ny = static_cast<long long>(y) + offset[1];
-        if (nx >= 0 && ny >= 0 && nx < static_cast<long long>(width_) &&
-            ny < static_cast<long long>(height_)) {
-          stack.emplace_back(static_cast<std::size_t>(nx), static_cast<std::size_t>(ny));
-        }
-      }
+      for_each_neighbour(x, y, width_, height_, [&](std::size_t nx, std::size_t ny) {
+        stack.emplace_back(nx, ny);
+      });
     }
   }
 }

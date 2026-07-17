@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -56,9 +58,13 @@ struct App {
   bool timer_started = false;
   double start_time = 0.0;
   double final_time = 0.0;
-  int boom_x = -1; // cell that ended the game
-  int boom_y = -1;
+  std::vector<std::pair<int, int>> boom_cells; // geese that ended the game
 };
+
+bool is_boom_cell(const App &app, std::size_t x, std::size_t y) {
+  return std::find(app.boom_cells.begin(), app.boom_cells.end(),
+                   std::pair{static_cast<int>(x), static_cast<int>(y)}) != app.boom_cells.end();
+}
 
 void draw_text_centered(const char *text, float cx, float cy, int size, Color color) {
   const int width = MeasureText(text, size);
@@ -78,6 +84,12 @@ void draw_flag(float cx, float cy) {
   DrawLineEx({cx - 7, cy + 9}, {cx + 4, cy + 9}, 2.0f, pole);
   // Triangle vertices must be counter-clockwise for raylib to render them.
   DrawTriangle({cx - 2, cy - 9}, {cx - 2, cy - 1}, {cx + 8, cy - 5}, kFlagRed);
+}
+
+void draw_cross(float cx, float cy) {
+  const Color dark = {40, 44, 52, 255};
+  DrawLineEx({cx - 9, cy - 9}, {cx + 9, cy + 9}, 3.0f, dark);
+  DrawLineEx({cx - 9, cy + 9}, {cx + 9, cy - 9}, 3.0f, dark);
 }
 
 void draw_goose(float cx, float cy) {
@@ -102,12 +114,16 @@ void draw_cell(const App &app, std::size_t x, std::size_t y, int px, int py, boo
     DrawRectangleLinesEx(rect, 1.0f, kGridLine);
     if (board.is_marked(x, y)) {
       draw_flag(cx, cy);
+      // A flag on a safe cell was wrong: cross it out once the game is lost.
+      if (app.phase == Phase::Lost && board.value(x, y) != Board::goose_value) {
+        draw_cross(cx, cy);
+      }
     }
     return;
   }
 
   const int value = board.value(x, y);
-  const bool boom = static_cast<int>(x) == app.boom_x && static_cast<int>(y) == app.boom_y;
+  const bool boom = is_boom_cell(app, x, y);
   DrawRectangleRec(rect, boom ? Fade(kFlagRed, 0.45f) : kRevealedTile);
   DrawRectangleLinesEx(rect, 1.0f, Fade(kGridLine, 0.35f));
   if (value == Board::goose_value) {
@@ -138,7 +154,7 @@ void start_game(App &app, const Preset &preset) {
   app.phase = Phase::Playing;
   app.timer_started = false;
   app.final_time = 0.0;
-  app.boom_x = app.boom_y = -1;
+  app.boom_cells.clear();
   const int board_width = static_cast<int>(preset.width) * kCell;
   SetWindowSize(std::max(board_width, kMinWindowWidth),
                 static_cast<int>(preset.height) * kCell + kHud);
@@ -167,8 +183,30 @@ void update_menu(App &app) {
     }
   }
 
-  draw_text_centered("Left-click: reveal    Right-click: flag", kMenuWidth / 2.0f, 512, 18,
+  draw_text_centered("Left-click: reveal    Right-click: flag", kMenuWidth / 2.0f, 500, 18,
                      Fade(kHudBar, 0.65f));
+  draw_text_centered("Click a satisfied number to reveal its neighbours", kMenuWidth / 2.0f, 526,
+                     16, Fade(kHudBar, 0.5f));
+}
+
+// After a losing chord on (x, y): every goose it revealed sits next to it.
+void collect_chord_booms(App &app, std::size_t x, std::size_t y) {
+  const Board &board = *app.board;
+  for (int dy = -1; dy <= 1; ++dy) {
+    for (int dx = -1; dx <= 1; ++dx) {
+      const long long nx = static_cast<long long>(x) + dx;
+      const long long ny = static_cast<long long>(y) + dy;
+      if (nx < 0 || ny < 0 || nx >= static_cast<long long>(board.width()) ||
+          ny >= static_cast<long long>(board.height())) {
+        continue;
+      }
+      const auto ux = static_cast<std::size_t>(nx);
+      const auto uy = static_cast<std::size_t>(ny);
+      if (!board.is_hidden(ux, uy) && board.value(ux, uy) == Board::goose_value) {
+        app.boom_cells.emplace_back(static_cast<int>(ux), static_cast<int>(uy));
+      }
+    }
+  }
 }
 
 void handle_board_click(App &app, std::size_t x, std::size_t y) {
@@ -181,19 +219,25 @@ void handle_board_click(App &app, std::size_t x, std::size_t y) {
     return;
   }
 
-  const RevealResult result = board.reveal(x, y);
+  // Hidden cell: reveal it. Revealed number: try to chord.
+  const bool was_hidden = board.is_hidden(x, y);
+  const RevealResult result = was_hidden ? board.reveal(x, y) : board.chord(x, y);
   if (!app.timer_started && (result == RevealResult::Revealed || result == RevealResult::Goose)) {
     app.timer_started = true;
     app.start_time = GetTime();
   }
   if (result == RevealResult::Goose) {
     app.final_time = GetTime() - app.start_time;
-    app.boom_x = static_cast<int>(x);
-    app.boom_y = static_cast<int>(y);
-    board.reveal_all_geese();
+    if (was_hidden) {
+      app.boom_cells.emplace_back(static_cast<int>(x), static_cast<int>(y));
+    } else {
+      collect_chord_booms(app, x, y);
+    }
+    board.reveal_unmarked_geese();
     app.phase = Phase::Lost;
   } else if (result == RevealResult::Revealed && board.is_won()) {
     app.final_time = app.timer_started ? GetTime() - app.start_time : 0.0;
+    board.mark_all_geese();
     app.phase = Phase::Won;
   }
 }

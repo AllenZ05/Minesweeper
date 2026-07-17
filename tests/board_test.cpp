@@ -109,7 +109,7 @@ void test_losing_reveals_all_geese() {
     }
   }
   assert(geese_seen == 1);
-  board.reveal_all_geese();
+  board.reveal_unmarked_geese();
   int visible_geese = 0;
   for (std::size_t y = 0; y < 3; ++y) {
     for (std::size_t x = 0; x < 3; ++x) {
@@ -120,6 +120,97 @@ void test_losing_reveals_all_geese() {
     }
   }
   assert(visible_geese == 7);
+}
+
+void test_chord_reveals_neighbours_when_flags_match() {
+  // 3x3, 1 goose, reveal the centre: placement is forced into the outer
+  // ring, so the centre always shows 1.
+  Board board(3, 3, 1);
+  assert(board.reveal(1, 1) == RevealResult::Revealed);
+  assert(board.value(1, 1) == 1);
+  assert(board.chord(1, 1) == RevealResult::AlreadyRevealed); // no flags yet
+  for (std::size_t y = 0; y < 3; ++y) {
+    for (std::size_t x = 0; x < 3; ++x) {
+      if (board.value(x, y) == Board::goose_value) {
+        assert(board.toggle_mark(x, y) == MarkResult::Toggled);
+      }
+    }
+  }
+  assert(board.chord(1, 1) == RevealResult::Revealed); // reveals the 7 safe cells
+  assert(board.is_won());
+}
+
+void test_chord_on_wrong_flag_hits_goose() {
+  Board board(3, 3, 1);
+  assert(board.reveal(1, 1) == RevealResult::Revealed);
+  // Flag a safe hidden cell instead of the goose, then chord the centre.
+  bool flagged = false;
+  for (std::size_t y = 0; y < 3 && !flagged; ++y) {
+    for (std::size_t x = 0; x < 3 && !flagged; ++x) {
+      if (board.is_hidden(x, y) && board.value(x, y) != Board::goose_value) {
+        assert(board.toggle_mark(x, y) == MarkResult::Toggled);
+        flagged = true;
+      }
+    }
+  }
+  assert(flagged);
+  assert(board.chord(1, 1) == RevealResult::Goose);
+  for (std::size_t y = 0; y < 3; ++y) {
+    for (std::size_t x = 0; x < 3; ++x) {
+      if (board.value(x, y) == Board::goose_value) {
+        assert(!board.is_hidden(x, y)); // the chord stepped on it
+      }
+    }
+  }
+}
+
+void test_chord_does_not_apply() {
+  Board board(3, 3, 1);
+  assert(board.chord(0, 0) == RevealResult::AlreadyRevealed); // hidden cell
+  assert(board.reveal(1, 1) == RevealResult::Revealed);
+  assert(board.chord(1, 1) == RevealResult::AlreadyRevealed); // flag count mismatch
+
+  Board empty(5, 4, 0);
+  assert(empty.reveal(2, 2) == RevealResult::Revealed);
+  assert(empty.chord(2, 2) == RevealResult::AlreadyRevealed); // zero cells can't chord
+}
+
+void test_win_marks_geese_and_loss_keeps_flags() {
+  // mark_all_geese flags the goose left unmarked on a win.
+  Board board(2, 1, 1);
+  assert(board.reveal(0, 0) == RevealResult::Revealed);
+  assert(board.is_won());
+  board.mark_all_geese();
+  assert(board.is_marked(1, 0));
+
+  // reveal_unmarked_geese leaves a flagged goose hidden.
+  Board lost(3, 3, 7);
+  assert(lost.reveal(1, 1) == RevealResult::Revealed);
+  std::size_t flag_x = 0;
+  std::size_t flag_y = 0;
+  bool flagged = false;
+  for (std::size_t y = 0; y < 3 && !flagged; ++y) {
+    for (std::size_t x = 0; x < 3 && !flagged; ++x) {
+      if (lost.value(x, y) == Board::goose_value) {
+        assert(lost.toggle_mark(x, y) == MarkResult::Toggled);
+        flag_x = x;
+        flag_y = y;
+        flagged = true;
+      }
+    }
+  }
+  assert(flagged);
+  lost.reveal_unmarked_geese();
+  assert(lost.is_hidden(flag_x, flag_y)); // flag stays
+  int visible_geese = 0;
+  for (std::size_t y = 0; y < 3; ++y) {
+    for (std::size_t x = 0; x < 3; ++x) {
+      if (lost.value(x, y) == Board::goose_value && !lost.is_hidden(x, y)) {
+        ++visible_geese;
+      }
+    }
+  }
+  assert(visible_geese == 6);
 }
 
 void test_max_board_flood_fill() {
@@ -141,6 +232,10 @@ int main() {
   test_flood_fill_skips_marked_cells();
   test_mark_and_reveal_rules();
   test_losing_reveals_all_geese();
+  test_chord_reveals_neighbours_when_flags_match();
+  test_chord_on_wrong_flag_hits_goose();
+  test_chord_does_not_apply();
+  test_win_marks_geese_and_loss_keeps_flags();
   test_max_board_flood_fill();
   std::cout << "All board tests passed.\n";
   return 0;
