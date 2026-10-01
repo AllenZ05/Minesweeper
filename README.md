@@ -1,4 +1,4 @@
-# Mineseeker — UW Edition
+# Minesweeper — UW Edition
 
 A desktop Minesweeper game inspired by the University of Waterloo: clear the campus, flag the Canadian geese, and beat your personal best.
 
@@ -20,7 +20,7 @@ On macOS, install [raylib](https://www.raylib.com/) and `pkg-config` with Homebr
 ```sh
 brew install raylib pkg-config
 make
-./mineseeker
+./minesweeper
 ```
 
 Built with C++20 and raylib 6. Keep the `assets` directory beside the executable if you move the game.

@@ -71,10 +71,10 @@ int main(int argc, char **argv) {
   FakeAudio::reset();
   SetTraceLogLevel(LOG_WARNING);
   SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
-  InitWindow(640, 780, "Mineseeker interface checks");
+  InitWindow(640, 780, "Minesweeper interface checks");
   SetTargetFPS(60);
   const auto temporary = std::filesystem::temp_directory_path() /
-      ("mineseeker-ui-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+      ("minesweeper-ui-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   std::filesystem::create_directory(temporary);
   const std::filesystem::path screenshots = argc > 1 ? argv[1] : "";
   if (!screenshots.empty()) std::filesystem::create_directories(screenshots);

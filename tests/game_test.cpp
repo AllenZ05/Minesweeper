@@ -115,7 +115,7 @@ void test_record_errors_and_recovery(const std::filesystem::path &directory) {
 
 int main() {
   const auto directory = std::filesystem::temp_directory_path() /
-      ("mineseeker-tests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+      ("minesweeper-tests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   std::filesystem::create_directory(directory);
   test_clock_and_pause(directory / "clock");
   test_results_and_saved_records(directory / "records");

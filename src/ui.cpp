@@ -472,7 +472,7 @@ void UI::draw_control(const Control &item) const {
 void UI::draw_menu(const Game &game) const {
   rounded({40, 36, 94, 26}, 13, kGold);
   centered("UW EDITION", 87, 42, 12, kInk, true);
-  text("Mineseeker", 40, 89, 49, kInk, true);
+  text("Minesweeper", 40, 89, 49, kInk, true);
   text("A little strategy. A lot of geese.", 42, 150, 19, kMuted);
   rounded({478, 86, 122, 102}, 26, kGoldSoft);
   DrawCircle(577, 106, 5, kGold);
@@ -527,7 +527,7 @@ void UI::draw_custom() const {
 void UI::draw_game(const Game &game) const {
   const Board &board = *game.board;
   goose(48, 48, 28);
-  text("Mineseeker", 70, 29, 24, kInk, true);
+  text("Minesweeper", 70, 29, 24, kInk, true);
   const std::string detail = std::string(game.preset.name) + "  /  " + std::to_string(board.width()) + " x " + std::to_string(board.height());
   text(detail, 72, 59, 13, kMuted);
 

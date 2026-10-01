@@ -3,7 +3,7 @@ CXXFLAGS := -std=c++20 -Wall -Wextra -O2
 
 SRC := src/board.cpp src/game.cpp src/audio.cpp src/ui.cpp src/gui_main.cpp
 HEADERS := src/board.h src/game.h src/audio.h src/ui.h
-BIN := mineseeker
+BIN := minesweeper
 
 all: $(BIN)
 

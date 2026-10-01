@@ -4,7 +4,7 @@
 
 int main() {
   SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
-  InitWindow(640, 780, "Mineseeker - UW Edition");
+  InitWindow(640, 780, "Minesweeper - UW Edition");
   SetTargetFPS(60);
   SetExitKey(KEY_NULL);
   {
