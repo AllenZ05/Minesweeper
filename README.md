@@ -2,6 +2,10 @@
 
 A desktop Minesweeper game inspired by the University of Waterloo: clear the campus, flag the Canadian geese, and beat your personal best.
 
+## Demo
+
+https://github.com/user-attachments/assets/abed9941-ae4a-4830-8f50-09bf21d47cab
+
 ## Features
 
 - **Classic Minesweeper:** Reveal safe tiles and flag suspected geese. When the flags around a revealed number match its value, click it to reveal the remaining neighbours.
