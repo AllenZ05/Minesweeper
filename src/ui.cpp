@@ -27,7 +27,7 @@ constexpr Color kNumbers[] = {BLANK, {41, 99, 163, 255}, kGreen, kRed,
     {128, 55, 123, 255}, {76, 85, 80, 255}};
 
 enum Id { Custom = 5, Help, Motion, Menu, Pause, Restart, Replay, Close,
-          BoardFocus, Start, Back, Resume, Save, HelpRules, HelpKeys };
+          BoardFocus, Start, Back, Resume, Save, HelpRules, HelpKeys, SoundToggle };
 
 Rectangle inset(Rectangle r, float amount) {
   return {r.x + amount, r.y + amount, r.width - 2 * amount, r.height - 2 * amount};
@@ -219,10 +219,13 @@ void UI::build_controls(const Game &game) {
     if (!game.records_saved && game.phase == Phase::Won)
       controls_.push_back({Save, {32, height_ - 44, 210, 30}, "Record not saved. Retry", Kind::Quiet});
   }
+  const char *sound_label = !audio_.available() ? "Sound unavailable" : audio_.enabled() ? "Sound on" : "Sound off";
   if (game.phase == Phase::Menu || game.phase == Phase::Custom) {
+    controls_.push_back({SoundToggle, {180, 710, 148, 36}, sound_label, Kind::Quiet, false, !audio_.available()});
     controls_.push_back({Motion, {40, 710, 126, 36}, reduced_motion_ ? "Motion off" : "Motion on", Kind::Quiet});
     controls_.push_back({Help, {460, 710, 140, 36}, "How to play", Kind::Quiet});
   } else {
+    controls_.push_back({SoundToggle, {width_ - 270, height_ - 44, 130, 30}, sound_label, Kind::Quiet, false, !audio_.available()});
     controls_.push_back({Help, {width_ - 132, height_ - 44, 100, 30}, "Controls", Kind::Quiet});
   }
 }
@@ -239,6 +242,7 @@ void UI::commit_edit() {
   clamp_custom();
 }
 void UI::start(Game &game, const Preset &preset, int index) {
+  audio_.stop();
   game.start(preset, index);
   cell_x_ = static_cast<int>(preset.width) / 2;
   cell_y_ = static_cast<int>(preset.height) / 2;
@@ -255,6 +259,7 @@ void UI::activate(Game &game, int id) {
   switch (id) {
   case Custom: game.phase = Phase::Custom; focus_ = 31; break;
   case Back: case Menu:
+    audio_.stop();
     commit_edit(); game.menu(); focus_ = 1; board_press_ = false; fit_window(game); break;
   case Start: {
     commit_edit();
@@ -263,11 +268,14 @@ void UI::activate(Game &game, int id) {
     start(game, custom, -1); break;
   }
   case Pause: case Resume:
+    audio_.stop();
     game.pause(!game.paused, now); board_press_ = false;
     focus_ = game.paused ? Resume : BoardFocus; break;
   case Restart: case Replay: start(game, game.preset, game.preset_index); break;
   case Motion: reduced_motion_ = !reduced_motion_; break;
+  case SoundToggle: audio_.toggle(); break;
   case Help:
+    audio_.stop();
     help_ = true; help_keys_ = false; game.pause(true, now); board_press_ = false; focus_ = Close; break;
   case HelpRules: help_keys_ = false; break;
   case HelpKeys: help_keys_ = true; break;
@@ -311,6 +319,7 @@ void UI::update(Game &game) {
   if (!fitted_) { fit_window(game); fitted_ = true; }
   layout(game);
   if (game.phase == Phase::Playing && !game.paused && !IsWindowFocused()) {
+    audio_.stop();
     game.pause(true, GetTime()); board_press_ = false; active_ = -1; focus_ = Resume;
   }
   build_controls(game);
@@ -351,6 +360,7 @@ void UI::update(Game &game) {
     consumed = true;
   }
   if (!consumed && editing_ < 0 && IsKeyPressed(KEY_M)) activate(game, Motion);
+  if (!consumed && editing_ < 0 && IsKeyPressed(KEY_S)) activate(game, SoundToggle);
   if (!consumed && editing_ < 0 && !help_) {
     if (IsKeyPressed(KEY_H) || IsKeyPressed(KEY_F1)) { activate(game, Help); consumed = true; }
     else if (game.board && IsKeyPressed(KEY_R)) { activate(game, Restart); consumed = true; }
@@ -402,10 +412,10 @@ void UI::update(Game &game) {
 
   if (!consumed && game.phase == Phase::Playing && !game.paused && !help_) {
     if (hover_x_ >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-      game.flag(hover_x_, hover_y_); focus_ = BoardFocus; keyboard_focus_ = false;
+      audio_.play(game.flag(hover_x_, hover_y_)); focus_ = BoardFocus; keyboard_focus_ = false;
     }
     if (hover_x_ >= 0 && board_press_ && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-      game.reveal(hover_x_, hover_y_, GetTime());
+      audio_.play(game.reveal(hover_x_, hover_y_, GetTime()));
       cell_x_ = hover_x_; cell_y_ = hover_y_;
     }
     if (focus_ == BoardFocus) {
@@ -415,9 +425,9 @@ void UI::update(Game &game) {
         cell_y_ = std::clamp(cell_y_ + (key(KEY_DOWN) ? 1 : 0) - (key(KEY_UP) ? 1 : 0), 0, static_cast<int>(game.board->height()) - 1);
         keyboard_focus_ = true;
       }
-      if (IsKeyPressed(KEY_F)) { game.flag(cell_x_, cell_y_); keyboard_focus_ = true; }
+      if (IsKeyPressed(KEY_F)) { audio_.play(game.flag(cell_x_, cell_y_)); keyboard_focus_ = true; }
       if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE)) {
-        game.reveal(cell_x_, cell_y_, GetTime()); keyboard_focus_ = true;
+        audio_.play(game.reveal(cell_x_, cell_y_, GetTime())); keyboard_focus_ = true;
       }
     }
   }
@@ -649,18 +659,18 @@ void UI::draw_help() const {
     text("KEY", x + 362, y + 161, 12, kMuted, true);
     const char *actions[] = {"Move between tiles", "Reveal a tile / clear neighbours",
         "Place or remove a flag", "Move between controls", "Activate a button",
-        "Pause / resume", "Restart the game", "Return to the menu", "Turn animations on / off"};
+        "Pause / resume", "Restart the game", "Return to the menu", "Turn animations on / off", "Turn sound on / off"};
     const char *keys[] = {"Arrow keys", "Space / Enter", "F", "Tab / Shift + Tab",
-        "Space / Enter", "P", "R", "Esc", "M"};
-    for (int i = 0; i < 9; ++i) {
-      const float row_y = y + 187 + i * 33;
+        "Space / Enter", "P", "R", "Esc", "M", "S"};
+    for (int i = 0; i < 10; ++i) {
+      const float row_y = y + 184 + i * 30;
       text(actions[i], x + 28, row_y + 5, 16, kInk);
       rounded({x + 350, row_y, 182, 27}, 6, kPaper);
       text(keys[i], x + 362, row_y + 6, 14, kInk, true);
     }
     text("Use Tab to focus the board before moving between tiles.", x + 28, y + 498, 14, kMuted);
-    text(reduced_motion_ ? "Animations are off. Press M to turn them on."
-                         : "Animations are on. Press M to turn them off.", x + 28, y + 520, 14, kMuted);
+    const std::string sound_status = !audio_.available() ? "Sound unavailable" : audio_.enabled() ? "Sound on" : "Sound off";
+    text(sound_status + "   /   " + (reduced_motion_ ? "Animations off" : "Animations on"), x + 28, y + 520, 14, kMuted);
   }
 }
 void UI::draw(const Game &game) {

@@ -10,6 +10,7 @@ A desktop Minesweeper game inspired by the University of Waterloo: clear the cam
 - **Custom boards:** Choose 4–40 columns, 4–20 rows, and your goose count.
 - **Personal bests:** Your fastest clear of each difficulty is saved locally.
 - **Mouse and keyboard controls:** Play either way, with optional animations and a resizable interface that supports Retina displays.
+- **Sound effects:** Soft reveal and flag cues, a win chime, and a goose honk. Toggle sound on or off at any time.
 - **Pause and resume:** Pausing or switching windows hides the board and stops the timer.
 
 ## Getting Started
@@ -38,6 +39,7 @@ Built with C++20 and raylib 6. Keep the `assets` directory beside the executable
 | Return to the menu | Esc |
 | Open controls / help | H / F1 |
 | Toggle animations | M, or the Motion button in the menu |
+| Toggle sound | S, or the Sound button |
 
 In Custom, click a value to type it. Enter applies the change; Esc cancels it.
 

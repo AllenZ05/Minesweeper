@@ -1,6 +1,7 @@
 // Exercises the real controller and renderer with deterministic input.
 // Requires a desktop/OpenGL context: `make test-ui`.
 #include "ui.h"
+#include "fake_audio.h"
 
 #include <algorithm>
 #include <cassert>
@@ -67,6 +68,7 @@ void capture(UI &ui, Game &game, const std::filesystem::path &directory, const c
 }
 
 int main(int argc, char **argv) {
+  FakeAudio::reset();
   SetTraceLogLevel(LOG_WARNING);
   SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
   InitWindow(640, 780, "Mineseeker interface checks");
@@ -90,6 +92,7 @@ int main(int argc, char **argv) {
     keypress(ui, game, KEY_ENTER);
     assert(game.phase == Phase::Playing && game.preset_index == 1);
     assert(!game.timer_started); // Selecting a preset never leaks a board click.
+    assert(FakeAudio::played.empty());
     // The exact right/bottom edge lies outside the board; these must never
     // become out-of-bounds cell coordinates.
     click(ui, game, 500, 216);
@@ -97,8 +100,10 @@ int main(int argc, char **argv) {
     assert(!game.timer_started);
     input.mouse = {160, 216}; input.right = true; tick(ui, game);
     assert(game.board->is_marked(0, 0));
+    assert((FakeAudio::played == std::vector<std::uintptr_t>{2}));
     click(ui, game, 160, 216);
     assert(!game.timer_started);
+    assert(FakeAudio::played.size() == 1); // Clicking a flag produces no reveal cue.
     input.mouse = {160, 216}; input.right = true; tick(ui, game);
     assert(!game.board->is_marked(0, 0));
     input.mouse = {15, 15}; input.pressed = input.down = true; tick(ui, game);
@@ -106,7 +111,19 @@ int main(int argc, char **argv) {
     assert(!game.timer_started); // A press from outside the board cannot reveal.
     click(ui, game, 160, 216);
     assert(game.timer_started && !game.board->is_hidden(0, 0));
+    assert((FakeAudio::played == std::vector<std::uintptr_t>{2, 2, 1}));
     keypress(ui, game, KEY_R);
+    assert(FakeAudio::playing.empty());
+    const auto before_mute = FakeAudio::played.size();
+    keypress(ui, game, KEY_S);
+    keypress(ui, game, KEY_F);
+    keypress(ui, game, KEY_F);
+    assert(FakeAudio::played.size() == before_mute);
+    keypress(ui, game, KEY_R); // Restart preserves the mute preference.
+    keypress(ui, game, KEY_F);
+    keypress(ui, game, KEY_F);
+    assert(FakeAudio::played.size() == before_mute);
+    keypress(ui, game, KEY_S);
     keypress(ui, game, KEY_F);
     assert(game.board->is_marked(4, 4));
     keypress(ui, game, KEY_SPACE);
@@ -114,9 +131,10 @@ int main(int argc, char **argv) {
     keypress(ui, game, KEY_F);
     keypress(ui, game, KEY_SPACE);
     assert(game.timer_started && !game.board->is_hidden(4, 4));
+    assert(FakeAudio::played.size() == before_mute + 3 && FakeAudio::played.back() == 1); // One cue for the whole opening.
     capture(ui, game, screenshots, "playing.png");
     keypress(ui, game, KEY_P);
-    assert(game.paused);
+    assert(game.paused && FakeAudio::playing.empty());
     capture(ui, game, screenshots, "paused.png");
     keypress(ui, game, KEY_P);
     assert(!game.paused);
@@ -144,12 +162,16 @@ int main(int argc, char **argv) {
     keypress(ui, game, KEY_ENTER);
     assert(game.phase == Phase::Playing && !game.timer_started);
     game.reveal(4, 4, GetTime());
+    const auto before_loss = FakeAudio::played.size();
     bool lost = false;
     for (std::size_t y = 0; y < game.board->height() && !lost; ++y)
       for (std::size_t x = 0; x < game.board->width() && !lost; ++x)
-        if (game.board->value(x, y) == Board::goose_value) { game.reveal(x, y, GetTime()); lost = true; }
+        if (game.board->value(x, y) == Board::goose_value) {
+          click(ui, game, 140 + x * 40 + 20, 196 + y * 40 + 20); lost = true;
+        }
     tick(ui, game);
     assert(game.phase == Phase::Lost);
+    assert(FakeAudio::played.size() == before_loss + 1 && FakeAudio::played.back() == 4);
     capture(ui, game, screenshots, "lost.png");
     keypress(ui, game, KEY_ESCAPE);
     click(ui, game, 320, 651);
@@ -162,8 +184,10 @@ int main(int argc, char **argv) {
     assert(game.board->width() == 4 && game.board->height() == 4 && game.board->num_geese() == 7);
     assert(!game.timer_started);
     capture(ui, game, screenshots, "small.png");
+    const auto before_win = FakeAudio::played.size();
     keypress(ui, game, KEY_SPACE);
     assert(game.phase == Phase::Won && !game.new_best);
+    assert(FakeAudio::played.size() == before_win + 1 && FakeAudio::played.back() == 3); // No reveal/auto-flag sounds under a win.
     capture(ui, game, screenshots, "small-won.png");
     keypress(ui, game, KEY_ESCAPE);
     click(ui, game, 320, 651);
@@ -201,6 +225,20 @@ int main(int argc, char **argv) {
           checked = true;
         }
     assert(checked);
+  }
+  assert(FakeAudio::live.empty() && !FakeAudio::ready);
+  FakeAudio::reset();
+  FakeAudio::device_allowed = false;
+  {
+    Game game(temporary / "records");
+    UI ui;
+    tick(ui, game);
+    keypress(ui, game, KEY_S);
+    capture(ui, game, screenshots, "sound-unavailable.png");
+    keypress(ui, game, KEY_ENTER);
+    assert(game.phase == Phase::Playing);
+    keypress(ui, game, KEY_SPACE);
+    assert(game.timer_started && FakeAudio::played.empty());
   }
   CloseWindow();
   std::filesystem::remove_all(temporary);

@@ -13,16 +13,16 @@ void test_clock_and_pause(const std::filesystem::path &path) {
   Game game(path);
   game.start(kPresets[2], 2);
   assert(!game.timer_started && game.elapsed(50) == 0);
-  game.flag(0, 0);
+  assert(game.flag(0, 0) == GameEvent::Flagged);
   assert(!game.timer_started);
-  game.reveal(0, 0, 50); // A marked cell cannot start the timer.
+  assert(game.reveal(0, 0, 50) == GameEvent::None); // A marked cell cannot start the timer.
   assert(!game.timer_started);
   game.reveal(8, 8, 100);
   assert(game.timer_started && game.phase == Phase::Playing);
   assert(near(game.elapsed(105), 5));
   game.pause(true, 110);
   assert(game.paused && near(game.elapsed(300), 10));
-  game.reveal(0, 1, 300);
+  assert(game.reveal(0, 1, 300) == GameEvent::None);
   assert(game.board->is_hidden(0, 0));
   const auto marked = game.board->num_marked();
   game.flag(0, 0);
@@ -36,11 +36,12 @@ void test_clock_and_pause(const std::filesystem::path &path) {
 void test_results_and_saved_records(const std::filesystem::path &path) {
   Game game(path);
   game.start({"Beginner", 3, 3, 1}, 0);
-  game.reveal(1, 1, 100);
+  assert(game.reveal(1, 1, 100) == GameEvent::Revealed);
+  assert(game.reveal(1, 1, 101) == GameEvent::None); // Unsatisfied chord is silent.
   for (std::size_t y = 0; y < 3; ++y)
     for (std::size_t x = 0; x < 3; ++x)
       if (game.board->value(x, y) == Board::goose_value) game.flag(x, y);
-  game.reveal(1, 1, 112.5); // Chord wins; flags and records update together.
+  assert(game.reveal(1, 1, 112.5) == GameEvent::Won); // A winning chord has only one outcome.
   assert(game.phase == Phase::Won && game.new_best && game.records_saved);
   assert(near(game.elapsed(999), 12.5));
   Game loaded(path);
@@ -57,7 +58,7 @@ void test_results_and_saved_records(const std::filesystem::path &path) {
   for (std::size_t y = 0; y < 3; ++y)
     for (std::size_t x = 0; x < 3; ++x)
       if (game.board->value(x, y) == Board::goose_value) { gx = x; gy = y; }
-  game.reveal(gx, gy, 211);
+  assert(game.reveal(gx, gy, 211) == GameEvent::Lost);
   assert(game.phase == Phase::Lost && !game.new_best);
   assert(game.boom_cells.size() == 1 && game.boom_cells[0] == std::make_pair(gx, gy));
   assert(near(game.elapsed(999), 11));

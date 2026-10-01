@@ -22,6 +22,8 @@ inline constexpr std::array<Preset, 5> kPresets = {{
 }};
 
 enum class Phase { Menu, Custom, Playing, Won, Lost };
+// One outcome per action, including a flood reveal or a chord.
+enum class GameEvent { None, Revealed, Flagged, Won, Lost };
 std::filesystem::path best_times_path();
 
 // Game state has no graphics/input dependencies. Callers supply a monotonic clock.
@@ -29,8 +31,8 @@ struct Game {
   explicit Game(std::filesystem::path records_path = best_times_path());
   void start(const Preset &choice, int index);
   void menu();
-  void reveal(std::size_t x, std::size_t y, double now);
-  void flag(std::size_t x, std::size_t y);
+  GameEvent reveal(std::size_t x, std::size_t y, double now);
+  GameEvent flag(std::size_t x, std::size_t y);
   void pause(bool value, double now);
   double elapsed(double now) const;
   bool save_records();

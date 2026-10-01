@@ -78,14 +78,15 @@ void Game::pause(bool value, double now) {
   paused = value;
 }
 
-void Game::flag(std::size_t x, std::size_t y) {
-  if (phase == Phase::Playing && !paused && board) board->toggle_mark(x, y);
+GameEvent Game::flag(std::size_t x, std::size_t y) {
+  if (phase != Phase::Playing || paused || !board) return GameEvent::None;
+  return board->toggle_mark(x, y) == MarkResult::Toggled ? GameEvent::Flagged : GameEvent::None;
 }
 
-void Game::reveal(std::size_t x, std::size_t y, double now) {
-  if (phase != Phase::Playing || paused || !board) return;
+GameEvent Game::reveal(std::size_t x, std::size_t y, double now) {
+  if (phase != Phase::Playing || paused || !board) return GameEvent::None;
   const auto result = board->is_hidden(x, y) ? board->reveal(x, y) : board->chord(x, y);
-  if (result != RevealResult::Revealed && result != RevealResult::Goose) return;
+  if (result != RevealResult::Revealed && result != RevealResult::Goose) return GameEvent::None;
   if (!timer_started) {
     timer_started = true;
     start_time_ = now;
@@ -100,6 +101,7 @@ void Game::reveal(std::size_t x, std::size_t y, double now) {
     final_time_ = elapsed(now);
     board->reveal_unmarked_geese();
     phase = Phase::Lost;
+    return GameEvent::Lost;
   } else if (board->is_won()) {
     final_time_ = elapsed(now);
     board->mark_all_geese();
@@ -113,5 +115,7 @@ void Game::reveal(std::size_t x, std::size_t y, double now) {
         save_records();
       }
     }
+    return GameEvent::Won;
   }
+  return GameEvent::Revealed;
 }

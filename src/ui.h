@@ -2,6 +2,7 @@
 #define UI_H
 
 #include "game.h"
+#include "audio.h"
 #include "raylib.h"
 
 #include <string>
@@ -28,6 +29,7 @@ private:
     bool primary = false;
     bool disabled = false;
   };
+  SoundEffects audio_;
   Font regular_{};
   Font bold_{};
   std::vector<Control> controls_;
