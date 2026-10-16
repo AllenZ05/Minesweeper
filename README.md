@@ -6,6 +6,8 @@ A desktop Minesweeper game inspired by the University of Waterloo: clear the cam
 
 https://github.com/user-attachments/assets/abed9941-ae4a-4830-8f50-09bf21d47cab
 
+[Watch the demo in your browser](https://cdn.jsdelivr.net/gh/AllenZ05/Minesweeper@main/docs/minesweeper-demo.mp4) if the embedded player is unavailable on your phone or tablet.
+
 ## Features
 
 - **Classic Minesweeper:** Reveal safe tiles and flag suspected geese. When the flags around a revealed number match its value, click it to reveal the remaining neighbours.
